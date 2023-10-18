@@ -41,7 +41,7 @@ dbutils.library.restartPython()
 # - example s3 model path: "s3://bucket_name/model_name/hf_checkpoints"
 # - example gcp model path: "gs://bucket_name/model_name/hf_checkpoints" TBD
 # - example dbfs model path: "/dbfs/home/model_name/hf_checkpoints"
-MODEL_CHECKPOINT_PATH = '/dbfs/Users/marshall.carter@databricks.com/mosaicml/finetune'
+MODEL_CHECKPOINT_PATH = '/dbfs/Users/marshall.carter@databricks.com/mosaicml/models_v2_hf'
 
 # Provide a model name you want to use to register the model in the model registry
 # - example: "mpt_7b"
@@ -245,6 +245,34 @@ API_TOKEN = dbutils.notebook.entry_point.getDbutils().notebook().getContext().ap
 import requests
 import json
 
+def get_endpoint_status(endpoint_name:str) -> dict:
+    response = requests.get(url=f"{API_ROOT}/api/2.0/serving-endpoints/{endpoint_name}", json=data, headers=headers)
+    # print(json.dumps(response.json(), indent=4))
+    return response.json()
+
+def create_endpoint(data:dict, headers:dict) -> dict:
+    response = requests.post(url=f"{API_ROOT}/api/2.0/serving-endpoints", json=data, headers=headers)
+    # print(json.dumps(response.json(), indent=4))
+    return response.json()
+
+def update_endpoint(endpoint_name:str, data:dict, headers:dict) -> dict:
+    response = requests.put(url=f"{API_ROOT}/api/2.0/serving-endpoints/{endpoint_name}/config", json=data["config"], headers=headers)
+    # print(json.dumps(response.json(), indent=4))
+    return response.json()
+
+def create_or_update_endpoint(endpoint_name:str, data:dict, headers:dict) -> dict:
+    status_check = get_endpoint_status(endpoint_name)
+    if "state" in status_check:
+        print(f"updating endpoint {endpoint_name} to latest version")
+        response = update_endpoint(endpoint_name, data, headers)
+    else:
+        print(f"creating new endpoint")
+        response = create_endpoint()
+    print(json.dumps(response, indent=4))
+    return response
+
+# COMMAND ----------
+
 data = {
     "name": endpoint_name,
     "config": {
@@ -262,9 +290,8 @@ data = {
 
 headers = {"Context-Type": "text/json", "Authorization": f"Bearer {API_TOKEN}"}
 
-response = requests.post(url=f"{API_ROOT}/api/2.0/serving-endpoints", json=data, headers=headers)
-
-print(json.dumps(response.json(), indent=4))
+status = create_or_update_endpoint(endpoint_name=endpoint_name, data=data, headers=headers)
+print(status)
 
 # COMMAND ----------
 
@@ -284,27 +311,47 @@ print(json.dumps(response.json(), indent=4))
 import requests
 import json
 
-data = {
-    "inputs": {
-        "prompt": [
-            "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nWhat is Apache Spark?\n\n### Response:\n"
-        ]
-    },
-    "params": {
-        "max_tokens": 100, 
-        "temperature": 0.0
+def query_endpoint(prompt:str) -> dict:
+    data = {
+        "inputs": {
+            "prompt": [prompt]
+        },
+        "params": {
+            "max_tokens": 200, 
+            "temperature": 0.0
+        }
     }
-}
+    headers = {
+        "Context-Type": "text/json",
+        "Authorization": f"Bearer {API_TOKEN}"
+    }
+    response = requests.post(
+        url=f"{API_ROOT}/serving-endpoints/{endpoint_name}/invocations",
+        json=data,
+        headers=headers
+    )
 
-headers = {
-    "Context-Type": "text/json",
-    "Authorization": f"Bearer {API_TOKEN}"
-}
+    # print(json.dumps(response.json()))
 
-response = requests.post(
-    url=f"{API_ROOT}/serving-endpoints/{endpoint_name}/invocations",
-    json=data,
-    headers=headers
-)
+    return response.json()
 
-print(json.dumps(response.json()))
+# COMMAND ----------
+
+prompt1 = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nWhat is Apache Spark?\n\n### Response:\n"
+
+results1 = query_endpoint(prompt1)
+print(results1["predictions"][0]["candidates"][0]["text"])
+
+# COMMAND ----------
+
+prompt2 = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nWrite a recursive Python function.\n\n### Response:\n"
+
+results2 = query_endpoint(prompt2)
+print(results2["predictions"][0]["candidates"][0]["text"])
+
+# COMMAND ----------
+
+prompt3 = "Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\nWrite a Python function that finds the most rare record in a dataset.\n\n### Response:\n"
+
+results3 = query_endpoint(prompt3)
+print(results3["predictions"][0]["candidates"][0]["text"])
